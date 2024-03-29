@@ -5,6 +5,30 @@ import torch.nn.functional as F
 import typing
 from imagefiltering import * 
 
+def gaussian_kernel1d(sigma: float) -> torch.Tensor:
+    r"""Creates a 1D Gaussian kernel.
+    Args:
+        sigma (float): the standard deviation of the Gaussian distribution.
+    Returns:
+        torch.Tensor: the 1D Gaussian kernel.
+    """
+    ksize = get_gausskernel_size(sigma)
+    x = torch.arange(ksize) - ksize // 2
+    kernel = gaussian1d(x, sigma)
+    return kernel
+
+def guasian_deriv_kernel1d(sigma: float) -> torch.Tensor:
+    r"""Creates a 1D Gaussian derivative kernel.
+    Args:
+        sigma (float): the standard deviation of the Gaussian distribution.
+    Returns:
+        torch.Tensor: the 1D Gaussian derivative kernel.
+    """
+    ksize = get_gausskernel_size(sigma)
+    x = torch.arange(ksize) - ksize // 2
+    kernel = gaussian_deriv1d(x, sigma)
+    return kernel
+
 def harris_response(x: torch.Tensor,
                      sigma_d: float,
                      sigma_i: float,
@@ -39,8 +63,36 @@ def harris_response(x: torch.Tensor,
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, H, W)`
     """
-    out = torch.zeros_like(x)
-    return out
+
+    B, C, H, W = x.shape
+
+    d_gauss_kernel = guasian_deriv_kernel1d(sigma_d).reshape(1, -1)
+    i_gauss_kernel = gaussian_kernel1d(sigma_i).reshape(1, -1)
+
+    G = filter2d(x, i_gauss_kernel)
+    G = filter2d(G.permute(0, 1, 3, 2), i_gauss_kernel).permute(0, 1, 3, 2)
+
+    I_x = filter2d(x, d_gauss_kernel)
+    I_y = filter2d(x.permute(0, 1, 3, 2), d_gauss_kernel).permute(0, 1, 3, 2)
+
+    I_x2 = I_x ** 2 * G
+    I_y2 = I_y ** 2 * G
+    I_xy = I_x * I_y * G
+
+    M = torch.zeros(B, C, H, W, 2, 2)
+    M[:, :, :, :, 0, 0] = I_x2
+    M[:, :, :, :, 0, 1] = I_xy
+    M[:, :, :, :, 1, 0] = I_xy
+    M[:, :, :, :, 1, 1] = I_y2
+
+    det = torch.det(M)
+    trace = M[:, :, :, :, 0, 0] + M[:, :, :, :, 1, 1]
+
+    R = det - alpha * trace ** 2
+    # R = filter2d(R, i_gauss_kernel)
+    # R = filter2d(R.permute(0, 1, 3, 2), i_gauss_kernel).permute(0, 1, 3, 2)
+
+    return R
 
 
 def nms2d(x: torch.Tensor, th: float = 0):
