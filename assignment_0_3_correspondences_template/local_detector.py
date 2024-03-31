@@ -63,34 +63,19 @@ def harris_response(x: torch.Tensor,
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, H, W)`
     """
+    I = spatial_gradient_first_order(x, sigma_d)
 
-    B, C, H, W = x.shape
+    I_x = I[:, :, 0, :, :]
+    I_y = I[:, :, 1, :, :]
 
-    d_gauss_kernel = guasian_deriv_kernel1d(sigma_d).reshape(1, -1)
-    i_gauss_kernel = gaussian_kernel1d(sigma_i).reshape(1, -1)
+    I_x2 = gaussian_filter2d(I_x ** 2, sigma_i)
+    I_y2 = gaussian_filter2d(I_y ** 2, sigma_i)
+    I_xy = gaussian_filter2d(I_x * I_y, sigma_i)
 
-    G = filter2d(x, i_gauss_kernel)
-    G = filter2d(G.permute(0, 1, 3, 2), i_gauss_kernel).permute(0, 1, 3, 2)
-
-    I_x = filter2d(x, d_gauss_kernel)
-    I_y = filter2d(x.permute(0, 1, 3, 2), d_gauss_kernel).permute(0, 1, 3, 2)
-
-    I_x2 = I_x ** 2 * G
-    I_y2 = I_y ** 2 * G
-    I_xy = I_x * I_y * G
-
-    M = torch.zeros(B, C, H, W, 2, 2)
-    M[:, :, :, :, 0, 0] = I_x2
-    M[:, :, :, :, 0, 1] = I_xy
-    M[:, :, :, :, 1, 0] = I_xy
-    M[:, :, :, :, 1, 1] = I_y2
-
-    det = torch.det(M)
-    trace = M[:, :, :, :, 0, 0] + M[:, :, :, :, 1, 1]
+    det = I_x2 * I_y2 - I_xy ** 2
+    trace = I_x2 + I_y2
 
     R = det - alpha * trace ** 2
-    # R = filter2d(R, i_gauss_kernel)
-    # R = filter2d(R.permute(0, 1, 3, 2), i_gauss_kernel).permute(0, 1, 3, 2)
 
     return R
 

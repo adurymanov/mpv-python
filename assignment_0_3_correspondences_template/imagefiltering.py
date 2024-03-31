@@ -11,7 +11,6 @@ def get_gausskernel_size(sigma, force_odd = True):
         ksize +=1
     return int(ksize)
 
-
 def gaussian1d(x: torch.Tensor, sigma: float) -> torch.Tensor: 
     return 1 / (math.sqrt(2 * math.pi) * sigma) * (-pow(x, 2) / (2 * pow(sigma, 2))).exp()
 
@@ -36,13 +35,21 @@ def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
         torch.Tensor: the convolved tensor of same size and numbers of channels
         as the input.
     """
-    kernelFlip = torch.flip(kernel, (0,1))
-    kernel3d = kernelFlip[None, None, :]
-    out = torch.nn.functional.conv2d(x, kernel3d, padding='same')
+    b, c, h, w = x.shape
+    kH, kW = kernel.shape
 
-    ## Do not forget about flipping the kernel!
-    ## See in details here https://towardsdatascience.com/convolution-vs-correlation-af868b6b4fb5
+    kernel = torch.flip(kernel, [0, 1])
+    kernel = kernel.repeat(b, c, 1, 1)
+
+    w_pad = kW // 2
+    h_pad = kH // 2
     
+    pad = (w_pad, w_pad, h_pad, h_pad)
+    
+    x = torch.nn.functional.pad(x, pad, mode="replicate")
+
+    out = torch.nn.functional.conv2d(x, kernel, padding=0, groups=c)
+
     return out
 
 def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
@@ -60,19 +67,19 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
     """ 
     ksize = get_gausskernel_size(sigma)
-    kernel = torch.arange(-ksize, ksize)
+    kernel = torch.arange(ksize) - ksize // 2
     kernel = kernel.reshape(1, kernel.shape[0])
     
-    gKernel = gaussian1d(kernel, sigma=sigma)
+    x_gauss_kernel = gaussian1d(kernel, sigma=sigma)
+    y_gauss_kernel = x_gauss_kernel.permute(1, 0)
 
-    xResult = filter2d(x, gKernel)
-    yResult = filter2d(xResult.permute(0, 1, 3, 2), gKernel)
+    out = x
+    out = filter2d(out, x_gauss_kernel)
+    out = filter2d(out, y_gauss_kernel)
 
-    out = yResult.permute(0, 1, 3, 2)
     return out
 
-
-def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
+def spatial_gradient_first_order(x: torch.Tensor, sigma_i: float) -> torch.Tensor:
     r"""Computes the first order image derivative in both x and y directions using Gaussian derivative
 
     Return:
@@ -84,26 +91,28 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
     """
     b, c, h, w = x.shape
-    ksize = get_gausskernel_size(sigma)
-    kernel = torch.arange(-ksize, ksize)
+    
+    ksize = get_gausskernel_size(sigma_i)
+    kernel = torch.arange(ksize) - ksize // 2
     kernel = kernel.reshape(1, kernel.shape[0])
 
-    gKernel = gaussian1d(kernel, sigma)
-    gdKernel = gaussian_deriv1d(kernel, sigma)
+    x_gauss_kernel = gaussian1d(kernel, sigma_i)
+    y_gauss_kernel = x_gauss_kernel.permute(1, 0)
+    
+    x_gauss_deriv_kernel = gaussian_deriv1d(kernel, sigma_i)
+    y_gauss_deriv_kernel = x_gauss_deriv_kernel.permute(1, 0)
 
-    out_l1 = x
-    out_l1 = filter2d(out_l1, gKernel)
-    out_l1 = filter2d(out_l1.permute(0, 1, 3, 2), gdKernel)
-    out_l1 = out_l1.permute(0, 1, 3, 2)
+    out_1 = x
+    out_1 = filter2d(out_1, x_gauss_deriv_kernel)
+    out_1 = filter2d(out_1, y_gauss_kernel)
 
-    out_l2 = x
-    out_l2 = filter2d(out_l2, gdKernel)
-    out_l2 = filter2d(out_l2.permute(0, 1, 3, 2), gKernel)
-    out_l2 = out_l2.permute(0, 1, 3, 2)
+    out_2 = x
+    out_2 = filter2d(out_2, y_gauss_deriv_kernel)
+    out_2 = filter2d(out_2, x_gauss_kernel)
 
     out = torch.zeros(b,c,2,h,w)
-    out[0][0][0] = out_l1[0][0]
-    out[0][0][1] = out_l2[0][0]
+    out[:, :, 0, :, :] = out_1
+    out[:, :, 1, :, :] = out_2
 
     return out
 
