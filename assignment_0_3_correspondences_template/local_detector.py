@@ -92,7 +92,21 @@ def nms2d(x: torch.Tensor, th: float = 0):
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, H, W)`
     """
+    
+    b, c, h, w = x.size()
+
+    x_flat = x.view(b, c, -1)
+    sorted_indices = torch.argsort(x_flat, dim=2, descending=True)
+    result_indices = sorted_indices[:, :, 0]
+
+    while sorted_indices.size(2) > 1:
+        sorted_indices = sorted_indices[:, :, 1:]
+        max_indices = sorted_indices[:, :, 0]
+        
+        
+    
     out = torch.zeros_like(x)
+
     return out
 
 
@@ -186,4 +200,3 @@ def scalespace_harris(x: torch.Tensor,
     # Don't forget to convert scale index to scale value with use of sigma
     out = torch.zeros(0,3)
     return out
-
